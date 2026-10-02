@@ -1,0 +1,65 @@
+name: Publish Ana Munoz demo to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Prepare demo and project routes
+        env:
+          DEMO_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re, zipfile
+          owner, name = os.environ['DEMO_REPOSITORY'].split('/')
+          prefix = '/' + name
+          site = 'https://' + owner.lower() + '.github.io' + prefix
+          with zipfile.ZipFile('05-ana-munoz-demo.zip') as z:
+              z.extractall('project')
+          root = pathlib.Path('project/dist')
+          for path in root.rglob('*'):
+              if path.is_file() and path.suffix in {'.html', '.css', '.js', '.json'}:
+                  text = path.read_text(encoding='utf-8-sig')
+                  text = re.sub(r'''(["'])/(?!/)''', lambda m: m[1] + prefix + '/', text)
+                  if path.suffix == '.html':
+                      text = re.sub(r'(<link rel="canonical" href=")https://www\.xn--peluqueriaanamuoz-txb\.com([^"<>]*)', lambda m: m[1] + site + m[2], text)
+                      text = text.replace('Concepto de rediseño local para una presentación.', 'Concepto de rediseño para una presentación.')
+                  path.write_text(text, encoding='utf-8')
+          for old, new in {'peinados':'cortes-pelo', 'peinados-eventos':'novias', 'protesis-capilares':'pelucas-protesiscapilares'}.items():
+              folder = root / old
+              folder.mkdir(exist_ok=True)
+              target = prefix + '/' + new + '/'
+              (folder / 'index.html').write_text('<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><meta http-equiv="refresh" content="0;url=' + target + '"><title>Ana Muñoz</title></head><body><a href="' + target + '">Continuar al servicio</a></body></html>', encoding='utf-8')
+          (root / '.nojekyll').touch()
+          assert (root / 'index.html').exists()
+          assert prefix + '/assets/' in (root / 'index.html').read_text()
+          assert prefix + '/contacto/' in (root / 'app.js').read_text() or prefix + '/assets/' in (root / 'app.js').read_text()
+          print('Pages artifact ready:', site + '/')
+          PY
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: project/dist
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
